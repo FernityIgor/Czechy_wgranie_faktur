@@ -1,0 +1,19 @@
+# Ignoruj pliki konfiguracyjne z danymi dostępowymi
+.env
+
+# Ignoruj logi
+logs/
+*.log
+
+# Ignoruj pliki tymczasowe
+*.tmp
+*.bak
+*.swp
+*~
+
+# Ignoruj cache
+cache/
+temp/
+
+# Docker volumes
+volumes/

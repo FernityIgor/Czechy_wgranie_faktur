@@ -1,0 +1,18 @@
+-- Tabela do śledzenia przetworzonych faktur
+-- Wykonaj to zapytanie w SQL Server Management Studio lub przez sqlcmd
+
+CREATE TABLE Igor_faktury_wgrane_furnizone (
+    ID INT IDENTITY(1,1) PRIMARY KEY,
+    NUMER_FAKTURY NVARCHAR(50) NOT NULL,
+    PLATNIK_NAZWA NVARCHAR(255),
+    DATA_WYSTAWIENIA DATETIME,
+    DATA_PRZETWORZENIA DATETIME DEFAULT GETDATE(),
+    STATUS NVARCHAR(20) DEFAULT 'SUCCESS', -- SUCCESS, ERROR
+    FLEXIBEE_ID NVARCHAR(50),
+    KOMUNIKAT_BLEDU NVARCHAR(MAX),
+    CONSTRAINT UQ_NUMER_FAKTURY UNIQUE (NUMER_FAKTURY)
+);
+
+-- Indeks dla szybszego wyszukiwania
+CREATE INDEX IDX_DATA_PRZETWORZENIA ON Igor_faktury_wgrane_furnizone(DATA_PRZETWORZENIA);
+CREATE INDEX IDX_STATUS ON Igor_faktury_wgrane_furnizone(STATUS);
