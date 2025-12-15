@@ -76,6 +76,31 @@ class InvoiceCreator
         $flexibeeData = convertToFlexibeeFormat($invoiceData);
         echo "✓ Dane przekonwertowane\n\n";
 
+        // Zbierz informacje o produktach
+        $produktyInfo = null;
+        if (!empty($flexibeeData['_new_products'])) {
+            $produktyNotes = [];
+            foreach ($flexibeeData['_new_products'] as $prod) {
+                $note = "Kod: {$prod['kod']}";
+                if ($prod['iai_id']) {
+                    $note .= ", IAI_ID: {$prod['iai_id']}";
+                }
+                $note .= ", Czeska nazwa: ";
+                if ($prod['czech_name'] === 'OK') {
+                    $note .= "✓ pobrano z API";
+                } elseif ($prod['czech_name'] === 'BRAK') {
+                    $note .= "✗ brak w API";
+                } else {
+                    $note .= "- (brak IAI_ID)";
+                }
+                $produktyNotes[] = $note;
+            }
+            $produktyInfo = "Dodano produktów: " . count($flexibeeData['_new_products']) . "\n" . implode("\n", $produktyNotes);
+        }
+
+        // Usuń pole _new_products przed wysłaniem do Flexibee
+        unset($flexibeeData['_new_products']);
+
         // 3. Wyślij do Flexibee
         echo "Wysyłanie do Flexibee...\n";
         $result = $this->flexibee->createInvoice($flexibeeData);
@@ -86,7 +111,7 @@ class InvoiceCreator
             } else {
                 echo "✓ Faktura utworzona w Flexibee pomyślnie\n";
                 // Zapisz status przetworzenia
-                markInvoiceAsProcessed($invoiceNumber, 'SUCCESS', $invoiceNumber);
+                markInvoiceAsProcessed($invoiceNumber, 'SUCCESS', $invoiceNumber, null, $produktyInfo);
             }
         } else {
             echo "✗ Błąd: {$result['message']}\n";

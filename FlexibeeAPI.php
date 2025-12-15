@@ -380,6 +380,63 @@ class FlexibeeAPI
     }
 
     /**
+     * Pobiera czeską nazwę produktu z API dkwadrat.pl
+     * @param string $iaiId IAI ID produktu
+     * @return string|null Nazwa produktu w języku czeskim lub null
+     */
+    private function fetchCzechProductName($iaiId)
+    {
+        if (!$iaiId) {
+            return null;
+        }
+
+        $url = "https://dkwadrat.pl/api/admin/v7/products/descriptions?type=id&ids=" . urlencode($iaiId) . "&shopId=4";
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "X-API-KEY: YXBwbGljYXRpb24xOktvTnUyTkwrV0NEbUwvMzdhMmJFN3BFSzVTTkVEM2ZjRm9xbzQ5NDREKzd1SXRsNGlPQnFkL0pBb2NMZGZsR3c=",
+            "accept: application/json"
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        // Błąd cURL lub nieudany HTTP request
+        if ($error || $httpCode !== 200) {
+            return null;
+        }
+
+        $data = json_decode($response, true);
+        
+        // Błąd JSON lub brak danych
+        if (!$data || json_last_error() !== JSON_ERROR_NONE) {
+            return null;
+        }
+        
+        // Brak wyników (produkt nie istnieje w IAI)
+        if (empty($data['results']) || !is_array($data['results'])) {
+            return null;
+        }
+        
+        // Szukaj czeskiej nazwy w productDescriptionsLangData
+        if (isset($data['results'][0]['productDescriptionsLangData']) && is_array($data['results'][0]['productDescriptionsLangData'])) {
+            foreach ($data['results'][0]['productDescriptionsLangData'] as $langData) {
+                if (isset($langData['langId']) && $langData['langId'] === 'cze' && !empty($langData['productName'])) {
+                    return trim($langData['productName']);
+                }
+            }
+        }
+
+        // Nie znaleziono czeskiej nazwy
+        return null;
+    }
+
+    /**
      * Tworzy kartę magazynową dla produktu w wybranym magazynie i roku (jeśli brak)
      * @param string $productCode Kod produktu (bez prefixu code:)
      * @param string|null $warehouseCode Kod magazynu (code:XXXX). Jeśli null, użyje domyślnego
@@ -448,9 +505,12 @@ class FlexibeeAPI
      * @param string $jednostka Jednostka miary
      * @param string|null $skladCode Kod magazynu (code:...)
      * @param int|null $year Rok księgowy do utworzenia karty magazynowej (domyślnie bieżący)
+     * @param string|null $ean Kod EAN produktu
+     * @param string|null $rodzaj Rodzaj artykułu (Towar/Produkt/Usługa)
+     * @param string|null $iaiId IAI ID produktu (zapisywane do kodPlu)
      * @return array|null ['code' => kod, 'skladovy' => bool]
      */
-    public function ensureProduct($kod, $nazwa, $jednostka = 'ks', $skladCode = null, $year = null)
+    public function ensureProduct($kod, $nazwa, $jednostka = 'ks', $skladCode = null, $year = null, $ean = null, $rodzaj = 'Towar', $iaiId = null)
     {
         if (!$year) {
             $year = intval(date('Y'));
@@ -493,9 +553,13 @@ class FlexibeeAPI
             }
 
             $isStock = (!empty($existing['skladovy']) && $existing['skladovy'] === 'true') || (!empty($existing['skladove']) && $existing['skladove'] === 'true');
-            return ['code' => $kod, 'skladovy' => $isStock];
+            return ['code' => $kod, 'skladovy' => $isStock, 'new' => false];
         }
 
+        // Określ grupę na podstawie rodzaju artykułu
+        $isService = (stripos($rodzaj, 'usługa') !== false || stripos($rodzaj, 'usluga') !== false);
+        $skupZbozCode = $isService ? 'code:SLUŽBY' : 'code:ZBOŽÍ';
+        
         // Produkt nie istnieje - utwórz go
         $productData = [
             'winstrom' => [
@@ -503,13 +567,24 @@ class FlexibeeAPI
                 'cenik' => [
                     'kod' => $kod,
                     'nazev' => $nazwa,
-                    'mj' => $jednostka,
+                    'nazevA' => $nazwa,
+                    'mj1' => 'code:KS',
                     'typCenik' => 'code:KATALOG', // Typ: katalog (skladová karta)
-                    'skladovy' => true,
-                    'skladove' => true
+                    'skupinaZbozi' => $skupZbozCode,
+                    'skupZboz' => $skupZbozCode,
+                    'skladovy' => !$isService,  // Usługi nie są magazynowe
+                    'skladove' => !$isService
                 ]
             ]
         ];
+
+        if ($ean) {
+            $productData['winstrom']['cenik']['eanKod'] = $ean;
+        }
+        
+        if ($iaiId) {
+            $productData['winstrom']['cenik']['kodPlu'] = $iaiId;
+        }
 
         if (!$skladCode && $this->defaultWarehouse) {
             $skladCode = $this->defaultWarehouse;
@@ -527,7 +602,29 @@ class FlexibeeAPI
                 $this->ensureStockCard($kod, $skladCode ?: $this->defaultWarehouse, $year);
             }
 
-            return ['code' => $kod, 'skladovy' => true];
+            // Pobierz czeską nazwę z API i zaktualizuj produkt
+            $czechNameStatus = 'NO_IAI';
+            if ($iaiId) {
+                $czechName = $this->fetchCzechProductName($iaiId);
+                if ($czechName) {
+                    echo "Aktualizacja nazwy produktu $kod na czeską: $czechName\n";
+                    $this->updateProduct('code:' . $kod, ['nazev' => $czechName, 'nazevA' => $czechName]);
+                    $czechNameStatus = 'OK';
+                } else {
+                    echo "Brak czeskiej nazwy dla produktu $kod (IAI_ID: $iaiId) - pozostawiono polską nazwę\n";
+                    $czechNameStatus = 'BRAK';
+                }
+            }
+
+            return ['code' => $kod, 'skladovy' => true, 'new' => true, 'iai_id' => $iaiId, 'czech_name' => $czechNameStatus];
+        }
+        
+        // Loguj błąd tworzenia produktu
+        if (isset($result['message'])) {
+            echo "BŁĄD ensureProduct dla $kod: " . $result['message'] . "\n";
+            if (isset($result['response'])) {
+                echo "Response: " . json_encode($result['response']) . "\n";
+            }
         }
 
         return null;

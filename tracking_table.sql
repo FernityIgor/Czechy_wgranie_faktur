@@ -10,6 +10,7 @@ CREATE TABLE Igor_faktury_wgrane_furnizone (
     STATUS NVARCHAR(20) DEFAULT 'SUCCESS', -- SUCCESS, ERROR
     FLEXIBEE_ID NVARCHAR(50),
     KOMUNIKAT_BLEDU NVARCHAR(MAX),
+    PRODUKTY_INFO NVARCHAR(MAX), -- Informacje o dodanych produktach i ich nazwach czeskich
     CONSTRAINT UQ_NUMER_FAKTURY UNIQUE (NUMER_FAKTURY)
 );
 

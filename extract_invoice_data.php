@@ -32,16 +32,17 @@ function isInvoiceProcessed($invoiceNumber) {
  * @param string $status SUCCESS lub ERROR
  * @param string $flexibeeId ID w Flexibee (opcjonalne)
  * @param string $errorMessage Komunikat błędu (opcjonalnie)
+ * @param string $produktyInfo Informacje o dodanych produktach (opcjonalnie)
  * @return bool
  */
-function markInvoiceAsProcessed($invoiceNumber, $status = 'SUCCESS', $flexibeeId = null, $errorMessage = null) {
+function markInvoiceAsProcessed($invoiceNumber, $status = 'SUCCESS', $flexibeeId = null, $errorMessage = null, $produktyInfo = null) {
     $db = Database::getInstance();
     
     // Pobierz dane faktury
     $sqlInvoice = "
     SELECT TOP(1) 
         PLATNIK_NAZWA,
-        CONVERT(datetime, DATA_WYSTAWIENIA - 36163) as DATA_WYSTAWIENIA
+        FORMAT(DATEADD(day, DATA_WYSTAWIENIA - 36163, 0), 'yyyy-MM-dd HH:mm:ss') as DATA_WYSTAWIENIA
     FROM DOKUMENT_HANDLOWY
     WHERE NUMER = ?
     ";
@@ -56,10 +57,11 @@ function markInvoiceAsProcessed($invoiceNumber, $status = 'SUCCESS', $flexibeeId
             $db->query(
                 "UPDATE Igor_faktury_wgrane_furnizone
                  SET PLATNIK_NAZWA = ?,
-                     DATA_WYSTAWIENIA = ?,
+                     DATA_WYSTAWIENIA = CONVERT(DATETIME, ?, 120),
                      STATUS = ?,
                      FLEXIBEE_ID = ?,
                      KOMUNIKAT_BLEDU = ?,
+                     PRODUKTY_INFO = ?,
                      DATA_PRZETWORZENIA = GETDATE()
                  WHERE NUMER_FAKTURY = ?",
                 [
@@ -68,21 +70,23 @@ function markInvoiceAsProcessed($invoiceNumber, $status = 'SUCCESS', $flexibeeId
                     $status,
                     $flexibeeId,
                     $errorMessage,
+                    $produktyInfo,
                     $invoiceNumber
                 ]
             );
         } else {
             $db->query(
                 "INSERT INTO Igor_faktury_wgrane_furnizone
-                 (NUMER_FAKTURY, PLATNIK_NAZWA, DATA_WYSTAWIENIA, STATUS, FLEXIBEE_ID, KOMUNIKAT_BLEDU)
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                 (NUMER_FAKTURY, PLATNIK_NAZWA, DATA_WYSTAWIENIA, STATUS, FLEXIBEE_ID, KOMUNIKAT_BLEDU, PRODUKTY_INFO)
+                 VALUES (?, ?, CONVERT(DATETIME, ?, 120), ?, ?, ?, ?)",
                 [
                     $invoiceNumber,
                     $invoice ? $invoice['PLATNIK_NAZWA'] : null,
                     $invoice ? $invoice['DATA_WYSTAWIENIA'] : null,
                     $status,
                     $flexibeeId,
-                    $errorMessage
+                    $errorMessage,
+                    $produktyInfo
                 ]
             );
         }
@@ -220,10 +224,14 @@ function getInvoiceData($invoiceNumber) {
         ar.NAZWA,
         ar.INDEKS_KATALOGOWY,
         ar.PKWIU,
-        ar.VAT_SPRZEDAZY
+        ar.VAT_SPRZEDAZY,
+        ar.KOD_KRESKOWY,
+        ar.RODZAJ,
+        iai.iai_id
     FROM DOKUMENT_HANDLOWY han
     INNER JOIN POZYCJA_DOKUMENTU_MAGAZYNOWEGO pmag ON han.ID_DOKUMENTU_HANDLOWEGO = pmag.ID_DOK_HANDLOWEGO
     INNER JOIN ARTYKUL ar ON pmag.ID_ARTYKULU = ar.ID_ARTYKULU
+    LEFT JOIN MAGGEN_IAI iai ON ar.ID_ARTYKULU = iai.ID_NADRZEDNEGO
     WHERE han.NUMER LIKE ?
     ORDER BY han.ID_DOKUMENTU_HANDLOWEGO DESC
     ";
@@ -276,7 +284,10 @@ function getInvoiceData($invoiceNumber) {
                 'cena_brutto' => $cenaBrutto,
                 'wartosc_netto' => $wartoscNetto,
                 'wartosc_brutto' => $wartoscBrutto,
-                'stawka_vat' => floatval($row['VAT_SPRZEDAZY'])
+                'stawka_vat' => floatval($row['VAT_SPRZEDAZY']),
+                'ean' => $row['KOD_KRESKOWY'],
+                'rodzaj' => $row['RODZAJ'],
+                'iai_id' => $row['iai_id']
             ];
         }
         
@@ -300,6 +311,9 @@ function convertToFlexibeeFormat($invoice) {
     $flexibee = new FlexibeeAPI();
     $config = AppConfig::get();
     $defaultWarehouse = $config['mapping']['default_warehouse'] ?? null;
+    
+    // Tablica do śledzenia nowych produktów
+    $newProducts = [];
 
     // Normalizuje jednostki z bazy do kodów Flexibee (np. szt -> ks)
     $normalizeUnit = function ($unit) {
@@ -352,9 +366,22 @@ function convertToFlexibeeFormat($invoice) {
         $produktKod = $pozycja['kod'];
         $produktNazwa = $pozycja['nazwa'];
         $produktMj = $normalizeUnit($pozycja['jednostka']);
+        $produktEan = $pozycja['ean'] ?? null;
+        $produktRodzaj = $pozycja['rodzaj'] ?? 'Towar';
+        $produktIaiId = $pozycja['iai_id'] ?? null;
 
         $rokFaktury = intval(date('Y', strtotime($invoice['data_wystawienia'])));
-        $produktInfo = $flexibee->ensureProduct($produktKod, $produktNazwa, $produktMj, $defaultWarehouse, $rokFaktury) ?: ['code' => $pozycja['kod'], 'skladovy' => false];
+        $produktInfo = $flexibee->ensureProduct($produktKod, $produktNazwa, $produktMj, $defaultWarehouse, $rokFaktury, $produktEan, $produktRodzaj, $produktIaiId) ?: ['code' => $pozycja['kod'], 'skladovy' => false];
+        
+        // Zapisz informacje o nowym produkcie
+        if (isset($produktInfo['new']) && $produktInfo['new']) {
+            $newProducts[] = [
+                'kod' => $produktInfo['code'],
+                'iai_id' => $produktInfo['iai_id'] ?? null,
+                'czech_name' => $produktInfo['czech_name'] ?? 'NO_IAI'
+            ];
+        }
+        
         // Dodatkowe zabezpieczenie: upewnij się, że istnieje karta magazynowa dla danego roku
         if ($defaultWarehouse) {
             $flexibee->ensureStockCard($produktKod, $defaultWarehouse, $rokFaktury);
@@ -376,6 +403,9 @@ function convertToFlexibeeFormat($invoice) {
 
         $flexibeeInvoice['winstrom']['faktura-prijata']['polozkyDokladu'][] = $line;
     }
+    
+    // Dodaj informacje o nowych produktach do wyniku
+    $flexibeeInvoice['_new_products'] = $newProducts;
     
     return $flexibeeInvoice;
 }
