@@ -197,6 +197,45 @@ function getInvoicesList($supplier = 'D2design s.r.o.', $dateFrom = null, $dateT
 }
 
 /**
+ * Pobiera numery zamówień powiązane z fakturą
+ * @param string $invoiceNumber Numer faktury
+ * @return array Tablica z numerami zamówień ['zam_wfmag' => ..., 'zam_iai' => ...]
+ */
+function getInvoiceOrderNumbers($invoiceNumber) {
+    $db = Database::getInstance();
+    
+    $sql = "
+    SELECT DISTINCT 
+        zam.NUMER as zam_wfmag, 
+        zam.NR_ZAMOWIENIA_KLIENTA as zam_iai
+    FROM ZAMOWIENIE zam
+    INNER JOIN POZYCJA_ZAMOWIENIA pzam ON zam.ID_ZAMOWIENIA = pzam.ID_ZAMOWIENIA
+    INNER JOIN POZYCJA_DOKUMENTU_MAGAZYNOWEGO pmag ON pzam.ID_POZYCJI_ZAMOWIENIA = pmag.ID_POZ_ZAM
+    INNER JOIN DOKUMENT_HANDLOWY han ON pmag.ID_DOK_HANDLOWEGO = han.ID_DOKUMENTU_HANDLOWEGO
+    WHERE han.NUMER LIKE ?
+    ";
+    
+    try {
+        $results = $db->query($sql, [$invoiceNumber]);
+        
+        if (!empty($results)) {
+            // Jeśli jest wiele zamówień, połącz je przecinkami
+            $wfmagNumbers = array_filter(array_column($results, 'zam_wfmag'));
+            $iaiNumbers = array_filter(array_column($results, 'zam_iai'));
+            
+            return [
+                'zam_wfmag' => !empty($wfmagNumbers) ? implode(', ', $wfmagNumbers) : null,
+                'zam_iai' => !empty($iaiNumbers) ? implode(', ', $iaiNumbers) : null
+            ];
+        }
+    } catch (Exception $e) {
+        // Jeśli nie ma zamówień lub błąd, zwróć puste wartości
+    }
+    
+    return ['zam_wfmag' => null, 'zam_iai' => null];
+}
+
+/**
  * Pobiera dane faktury z bazy danych
  * @param string $invoiceNumber Numer faktury (np. 'FUE/0020/12/25')
  * @return array|null Dane faktury lub null jeśli nie znaleziono
@@ -246,6 +285,9 @@ function getInvoiceData($invoiceNumber) {
         // Buduj strukturę faktury
         $firstRow = $results[0];
         
+        // Pobierz numery zamówień
+        $orderNumbers = getInvoiceOrderNumbers($invoiceNumber);
+        
         $invoice = [
             'id_dokumentu' => $firstRow['ID_DOKUMENTU_HANDLOWEGO'],
             'numer' => $firstRow['NUMER'],
@@ -256,6 +298,8 @@ function getInvoiceData($invoiceNumber) {
             'waluta' => $firstRow['SYM_WAL'] ?: 'PLN',
             'forma_platnosci' => $firstRow['FORMA_PLATNOSCI'],
             'uwagi' => $firstRow['UWAGI'],
+            'zam_wfmag' => $orderNumbers['zam_wfmag'],
+            'zam_iai' => $orderNumbers['zam_iai'],
             'suma_netto' => 0,
             'suma_brutto' => 0,
             'pozycje' => []
@@ -330,6 +374,16 @@ function convertToFlexibeeFormat($invoice) {
         return $map[$clean] ?? $clean;
     };
     
+    // Przygotuj cisObj z numerami zamówień
+    $cisObj = '';
+    if ($invoice['zam_wfmag']) {
+        $cisObj .= 'Zam WFMAG: ' . $invoice['zam_wfmag'];
+    }
+    if ($invoice['zam_iai']) {
+        if ($cisObj) $cisObj .= ' | ';
+        $cisObj .= 'Zam IAI: ' . $invoice['zam_iai'];
+    }
+    
     $flexibeeInvoice = [
         'winstrom' => [
             '@version' => '1.0',
@@ -348,6 +402,9 @@ function convertToFlexibeeFormat($invoice) {
                 // Automatyczny ruch magazynowy (příjemka)
                 // UWAGA: podaj właściwy kod typu skladového dokladu przyjęcia
                 'typPohybuSklad' => 'code:PRIJEMKA',
+                
+                // Numer objednávky (zamówienia)
+                'cisObj' => $cisObj ?: null,
                 
                 // Pozycje faktury
                 'polozkyDokladu' => []
