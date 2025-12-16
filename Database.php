@@ -15,7 +15,7 @@ class Database
         $config = AppConfig::get()['database'];
         
         try {
-            $dsn = "sqlsrv:Server={$config['server']};Database={$config['database']}";
+            $dsn = "sqlsrv:Server={$config['server']};Database={$config['database']};TrustServerCertificate=yes";
             
             $this->connection = new PDO(
                 $dsn,
