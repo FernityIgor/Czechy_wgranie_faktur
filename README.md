@@ -2,7 +2,69 @@
 
 ## 📋 Opis projektu
 
-Automatyczne tworzenie faktur w systemie księgowym Flexibee na podstawie danych z SQL Server (baza d2).
+Automatyczne tworzenie faktur zakupowych w systemie księgowym Flexibee na podstawie danych z SQL Server (baza d2, system WF-Mag).
+
+## 🤔 Co robi ten program?
+
+Program integruje dwa systemy:
+1. **WF-Mag** (baza SQL Server) – źródło danych o fakturach i towarach
+2. **Flexibee** (system księgowy, REST API) – cel, do którego trafiają faktury
+
+### Przepływ pracy (workflow)
+
+```
+SQL Server (WF-Mag)                    Flexibee (księgowość)
+       │                                       │
+       │  1. Pobierz listę faktur              │
+       │─────────────────────────────────────>│ (sprawdź które już wgrano)
+       │                                       │
+       │  2. Dla każdej faktury:               │
+       │  - pobierz nagłówek (kontrahent,      │
+       │    daty, waluta)                      │
+       │  - pobierz pozycje (towary, ceny,     │
+       │    ilości, EAN, VAT)                  │
+       │  - pobierz powiązane zamówienia       │
+       │                                       │
+       │  3. Dla każdego towaru:               │
+       │        │                              │  sprawdź czy produkt istnieje w cenniku
+       │        │──────────────────────────────>
+       │        │                              │  jeśli nie – utwórz produkt (z kartą mag.)
+       │        │   dkwadrat.pl API            │
+       │        │──────────>  pobierz          │
+       │        │            czeską nazwę      │  zaktualizuj nazwę na czeską
+       │        │<──────────  produktu         │
+       │                                       │
+       │  4. Wyślij fakturę zakupową           │
+       │     (faktura-prijata) do Flexibee ───>│
+       │                                       │
+       │  5. Zapisz status wgrania w SQL       │
+       │     (tabela Igor_faktury_wgrane_      │
+       │      furnizone)                       │
+```
+
+### Szczegółowe działanie
+
+#### Krok 1 – Pobranie listy faktur
+Program odpytuje tabelę `DOKUMENT_HANDLOWY` w SQL Server, filtrując po nazwie dostawcy (np. `D2design s.r.o.`) i zakresie dat. Domyślnie wyszukuje od daty ostatniej przetworzonej faktury lub od początku bieżącego miesiąca.
+
+#### Krok 2 – Pobranie danych faktury
+Dla każdej faktury pobierane są:
+- **Nagłówek:** numer faktury, kontrahent, daty (wystawienie, sprzedaż, płatność), waluta
+- **Pozycje:** towary/usługi z tabeli `POZYCJA_DOKUMENTU_MAGAZYNOWEGO` i `ARTYKUL` (nazwa, kod, EAN, cena netto, ilość, VAT, rodzaj)
+- **Zamówienia:** powiązane numery zamówień z WF-Mag i IAI (sklepu internetowego)
+
+#### Krok 3 – Synchronizacja produktów
+Przed wgraniem faktury program sprawdza, czy każdy produkt z faktury istnieje w cenniku Flexibee:
+- **Produkt istnieje** → sprawdza magazynowość i przypisanie magazynu, uzupełnia jeśli brak
+- **Produkt nie istnieje** → tworzy nowy produkt w cenniku oraz kartę magazynową; pobiera czeską nazwę towaru z zewnętrznego API (`dkwadrat.pl`) i aktualizuje nazwę w Flexibee
+
+#### Krok 4 – Wgranie faktury zakupowej
+Dane faktury są konwertowane do formatu JSON Flexibee API (`faktura-prijata`) i wysyłane przez HTTP POST. Faktura zawiera typ dokumentu, daty, kontrahenta, pozycje z ilościami i cenami netto, informacje o magazynie oraz numer zamówienia w polu `cisObj`.
+
+#### Krok 5 – Tracking przetworzonych faktur
+Po udanym wgraniu numer faktury jest zapisywany w tabeli `Igor_faktury_wgrane_furnizone` ze statusem `SUCCESS`. Faktury z tym statusem są pomijane przy kolejnym uruchomieniu (nie są wgrywane ponownie). W przypadku błędu zapisywany jest status `ERROR` z komunikatem.
+
+---
 
 ## 🏗️ Architektura
 
@@ -165,12 +227,14 @@ GET /login-logout/session-keep-alive.js
 furnizone_ksiegowosc/
 ├── .env                    # Konfiguracja środowiska (NIE commituj!)
 ├── .env.example            # Przykład konfiguracji
-├── config.php              # Loader konfiguracji z .env
-├── Database.php            # Połączenie z SQL Server
+├── app_config.php          # Loader konfiguracji z .env
+├── Database.php            # Połączenie z SQL Server (PDO singleton)
 ├── FlexibeeAPI.php         # Klasa do komunikacji z Flexibee API
-├── InvoiceCreator.php      # Logika tworzenia faktur
-├── test_connection.php     # Test połączenia z oboma systemami
-├── create_invoices.php     # Główny skrypt tworzący faktury
+├── InvoiceCreator.php      # Główna klasa – przetwarzanie faktur (CLI)
+├── extract_invoice_data.php# Funkcje: pobieranie i konwersja danych faktury
+├── tracking_table.sql      # SQL do utworzenia tabeli śledzenia faktur
+├── create_tracking_table.php # Skrypt tworzący tabelę śledzenia
+├── assign_warehouse_all.php  # Przypisanie magazynu do wszystkich produktów
 ├── Dockerfile              # Konfiguracja Docker
 ├── docker-compose.yml      # Docker Compose setup
 ├── logs/                   # Logi (gitignore)
