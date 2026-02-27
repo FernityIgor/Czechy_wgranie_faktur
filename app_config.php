@@ -91,6 +91,10 @@ class AppConfig
                 'default_bank_account' => self::env('DEFAULT_BANK_ACCOUNT', null),
                 'default_warehouse' => self::env('DEFAULT_WAREHOUSE', ''),
             ],
+
+            'integrations' => [
+                'dkwadrat_api_key' => self::env('DKWADRAT_API_KEY', null),
+            ],
         ];
     }
 
