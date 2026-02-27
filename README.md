@@ -4,6 +4,47 @@
 
 Automatyczne tworzenie faktur w systemie księgowym Flexibee na podstawie danych z SQL Server (baza d2).
 
+---
+
+## ❓ Co robi ten program?
+
+Program **automatycznie importuje faktury zakupowe** z wewnętrznego systemu WFMag (baza SQL Server) do czeskiego systemu księgowego **Flexibee**.
+
+### Przepływ działania (krok po kroku):
+
+1. **Pobiera listę faktur z bazy WFMag** – wyszukuje faktury od wskazanego dostawcy (domyślnie `D2design s.r.o.`) z podanego okresu (domyślnie bieżący miesiąc).
+
+2. **Sprawdza, które faktury zostały już przetworzone** – korzysta z tabeli śledzenia `Igor_faktury_wgrane_furnizone` w SQL Server, aby nie importować tej samej faktury dwukrotnie.
+
+3. **Pobiera dane faktury** – dla każdej nowej faktury pobiera z bazy pełne dane: nagłówek (kontrahent, daty, waluta), pozycje (produkty, ilości, ceny, VAT) oraz powiązane numery zamówień (WFMag i IAI).
+
+4. **Weryfikuje i tworzy produkty w Flexibee** – dla każdej pozycji faktury sprawdza, czy produkt istnieje już w cenniku (katalogu) Flexibee:
+   - Jeśli produkt istnieje – upewnia się, że jest oznaczony jako magazynowy i ma przypisany magazyn.
+   - Jeśli produkt **nie istnieje** – tworzy go automatycznie, pobiera jego czeską nazwę z API sklepu (`dkwadrat.pl`) i aktualizuje wpis w Flexibee.
+
+5. **Tworzy karty magazynowe** – jeśli karta magazynowa dla danego produktu i roku nie istnieje, program tworzy ją automatycznie w wybranym magazynie Flexibee.
+
+6. **Wysyła fakturę do Flexibee** – konwertuje dane do formatu API Flexibee i tworzy fakturę zakupową (`faktura-prijata`) wraz z ruchem magazynowym (przyjęcie towaru).
+
+7. **Zapisuje status przetworzenia** – po udanym imporcie oznacza fakturę jako `SUCCESS` w tabeli śledzenia (z datą, ID w Flexibee i informacją o dodanych produktach). W razie błędu zapisuje komunikat błędu ze statusem `ERROR`.
+
+### Tryb DRY RUN
+
+Gdy w pliku `.env` ustawiono `DRY_RUN=true`, program **nie wysyła żadnych danych** do Flexibee ani nie tworzy produktów – tylko symuluje działanie. Przydatne do testowania.
+
+### Obsługiwane komendy CLI
+
+```bash
+php InvoiceCreator.php test                              # Test połączeń z bazą i Flexibee
+php InvoiceCreator.php process FUE/0020/12/25           # Import pojedynczej faktury
+php InvoiceCreator.php batch "D2design s.r.o."          # Import wszystkich faktur z bieżącego miesiąca
+php InvoiceCreator.php batch "D2design s.r.o." 2025-12-01 2025-12-31  # Import z podanego okresu
+php InvoiceCreator.php new "D2design s.r.o."            # Import tylko nowych (nieprzetworzone) faktur
+php InvoiceCreator.php contacts                         # Podgląd kontrahentów w Flexibee
+```
+
+---
+
 ## 🏗️ Architektura
 
 - **Źródło danych:** SQL Server (192.168.230.100:11519, baza d2)
