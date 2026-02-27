@@ -4,6 +4,73 @@
 
 Automatyczne tworzenie faktur w systemie księgowym Flexibee na podstawie danych z SQL Server (baza d2).
 
+---
+
+## 🤔 Co robi ten program?
+
+Program automatyzuje księgowanie faktur zakupowych od czeskiego dostawcy (D2design s.r.o.) w systemie Flexibee. W skrócie:
+
+1. **Pobiera faktury** z bazy danych SQL Server (systemu magazynowo-handlowego WF-Mag / IAI)
+2. **Konwertuje** dane do formatu wymaganego przez Flexibee API
+3. **Tworzy produkty** w cenniku Flexibee (jeśli nie istnieją), pobierając automatycznie czeskie nazwy z API sklepu
+4. **Wysyła faktury** do systemu Flexibee jako faktury przyjęte (zakupowe), generując jednocześnie ruch magazynowy (przyjęcie towaru)
+5. **Śledzi postęp** – każda przetworzona faktura jest oznaczana w bazie danych, dzięki czemu program nie przetwarza jej ponownie przy kolejnym uruchomieniu
+
+### 🔄 Szczegółowy przepływ działania
+
+```
+SQL Server (baza d2)
+       │
+       │  1. Pobierz listę faktur (DOKUMENT_HANDLOWY)
+       │     filtrowanie po dostawcy i zakresie dat
+       ▼
+ extract_invoice_data.php
+       │
+       │  2. Dla każdej faktury:
+       │     - Pobierz nagłówek: numer, daty, kontrahent, waluta
+       │     - Pobierz pozycje: artykuły, ilości, ceny, VAT, EAN
+       │     - Pobierz powiązane numery zamówień (WFMAG + IAI)
+       ▼
+ FlexibeeAPI.php (ensureProduct)
+       │
+       │  3. Dla każdej pozycji faktury sprawdź, czy produkt istnieje w Flexibee:
+       │     - Jeśli NIE istnieje → utwórz produkt w cenniku (cenik)
+       │       • Pobierz czeską nazwę z API dkwadrat.pl (po IAI_ID)
+       │       • Ustaw grupę towarową (ZBOŽÍ / SLUŽBY)
+       │       • Utwórz kartę magazynową (skladova-karta)
+       │     - Jeśli istnieje → upewnij się, że jest magazynowy i ma kartę
+       ▼
+ FlexibeeAPI.php (createInvoice)
+       │
+       │  4. Wyślij fakturę do Flexibee (POST /faktura-prijata):
+       │     - cisDosle = numer faktury (zewnętrzny)
+       │     - firma = code:D2PL (dostawca)
+       │     - typPohybuSklad = PRIJEMKA (automatyczne przyjęcie magazynowe)
+       │     - polozkyDokladu = pozycje z kodami z ceníku
+       ▼
+ extract_invoice_data.php (markInvoiceAsProcessed)
+       │
+       │  5. Zapisz wynik do tabeli Igor_faktury_wgrane_furnizone:
+       │     - STATUS = SUCCESS / ERROR
+       │     - PRODUKTY_INFO = lista nowych produktów
+       │     - DATA_PRZETWORZENIA = timestamp
+       ▼
+      KONIEC
+```
+
+### 📦 Kluczowe pliki i ich rola
+
+| Plik | Rola |
+|---|---|
+| `InvoiceCreator.php` | Główny skrypt – orkiestruje cały proces, obsługuje CLI |
+| `extract_invoice_data.php` | Pobiera dane z SQL Server i konwertuje do formatu Flexibee |
+| `FlexibeeAPI.php` | Klient REST API Flexibee (faktury, produkty, magazyn) |
+| `Database.php` | Połączenie z SQL Server przez PDO/SQLSRV |
+| `app_config.php` | Wczytuje konfigurację z pliku `.env` |
+| `tracking_table.sql` | SQL do utworzenia tabeli śledzenia przetworzonych faktur |
+
+---
+
 ## 🏗️ Architektura
 
 - **Źródło danych:** SQL Server (192.168.230.100:11519, baza d2)
