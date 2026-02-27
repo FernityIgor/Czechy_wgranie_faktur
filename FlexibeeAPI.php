@@ -14,6 +14,7 @@ class FlexibeeAPI
     private $password;
     private $dryRun;
     private $defaultWarehouse;
+    private $dkwadratApiKey;
 
     public function __construct()
     {
@@ -25,6 +26,7 @@ class FlexibeeAPI
         $this->password = $config['flexibee']['password'];
         $this->dryRun = $config['options']['dry_run'];
         $this->defaultWarehouse = $config['mapping']['default_warehouse'] ?? null;
+        $this->dkwadratApiKey = $config['integrations']['dkwadrat_api_key'] ?? null;
     }
 
     /**
@@ -390,6 +392,10 @@ class FlexibeeAPI
             return null;
         }
 
+        if (!$this->dkwadratApiKey) {
+            return null;
+        }
+
         $url = "https://dkwadrat.pl/api/admin/v7/products/descriptions?type=id&ids=" . urlencode($iaiId) . "&shopId=4";
         
         $ch = curl_init();
@@ -397,7 +403,7 @@ class FlexibeeAPI
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "X-API-KEY: YXBwbGljYXRpb24xOktvTnUyTkwrV0NEbUwvMzdhMmJFN3BFSzVTTkVEM2ZjRm9xbzQ5NDREKzd1SXRsNGlPQnFkL0pBb2NMZGZsR3c=",
+            "X-API-KEY: " . $this->dkwadratApiKey,
             "accept: application/json"
         ]);
 
