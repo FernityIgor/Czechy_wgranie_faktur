@@ -111,6 +111,34 @@ GET /login-logout/session-keep-alive.js
 
 ---
 
+## 🚀 Deploy na serwer testowy
+
+Projekt zawiera skrypt `deploy.sh`, który kopiuje cały katalog na serwer testowy przez SSH (rsync).
+
+1. **Utwórz plik konfiguracyjny:**
+   ```bash
+   cp deploy.env.example deploy.env
+   ```
+
+2. **Uzupełnij dane serwera w `deploy.env`:**
+   ```env
+   DEPLOY_HOST=adres-serwera-test
+   DEPLOY_USER=uzytkownik-ssh
+   DEPLOY_PORT=22
+   DEPLOY_PATH=/var/www/html/Czechy_wgranie_faktur
+   # DEPLOY_SSH_KEY=~/.ssh/id_rsa   # opcjonalnie
+   ```
+
+3. **Uruchom skrypt:**
+   ```bash
+   chmod +x deploy.sh
+   ./deploy.sh
+   ```
+
+Skrypt używa `rsync` i pomija pliki wrażliwe (`.env`, `deploy.env`, `logs/`, `.git/`).
+
+---
+
 ## 🚀 Instalacja
 
 ### Lokalnie (Windows/development):

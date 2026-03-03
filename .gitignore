@@ -1,5 +1,6 @@
 # Ignoruj pliki konfiguracyjne z danymi dostępowymi
 .env
+deploy.env
 
 # Ignoruj logi
 logs/
