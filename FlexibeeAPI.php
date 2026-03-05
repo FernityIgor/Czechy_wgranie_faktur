@@ -573,7 +573,8 @@ class FlexibeeAPI
                     'skupinaZbozi' => $skupZbozCode,
                     'skupZboz' => $skupZbozCode,
                     'skladovy' => !$isService,  // Usługi nie są magazynowe
-                    'skladove' => !$isService
+                    'skladove' => !$isService,
+                    'sazDph' => 'code:21',  // Czeska stawka VAT 21%
                 ]
             ]
         ];

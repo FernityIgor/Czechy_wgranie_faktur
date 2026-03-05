@@ -451,6 +451,7 @@ function convertToFlexibeeFormat($invoice) {
             'cenik' => 'code:' . $produktKod,
             'mnozMj' => $pozycja['ilosc'],  // Ilość
             'cenaMj' => $pozycja['cena_netto'],  // Cena jednostkowa netto
+            'sazDph' => 'code:21',  // Czeska stawka VAT 21% - wymagana na wszystkich pozycjach
         ];
 
         // Magazyn na linii: tylko gdy mamy kod magazynu i towar jest magazynowy
