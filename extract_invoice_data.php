@@ -428,9 +428,14 @@ function convertToFlexibeeFormat($invoice) {
         $produktIaiId = $pozycja['iai_id'] ?? null;
 
         $rokFaktury = intval(date('Y', strtotime($invoice['data_wystawienia'])));
-        $produktInfo = $flexibee->ensureProduct($produktKod, $produktNazwa, $produktMj, $defaultWarehouse, $rokFaktury, $produktEan, $produktRodzaj, $produktIaiId) ?: ['code' => $pozycja['kod'], 'skladovy' => false];
-        
-        // Zapisz informacje o nowym produkcie
+        $produktInfo = $flexibee->ensureProduct($produktKod, $produktNazwa, $produktMj, $defaultWarehouse, $rokFaktury, $produktEan, $produktRodzaj, $produktIaiId);
+
+        if ($produktInfo === null) {
+            echo "OSTRZEŻENIE: Pominięto pozycję '$produktKod' ($produktNazwa) - błąd zapewnienia produktu w Flexibee\n";
+            continue;
+        }
+
+        // Zapisz informacje o nowym produkcie (tylko gdy przeszło bez błędu)
         if (isset($produktInfo['new']) && $produktInfo['new']) {
             $newProducts[] = [
                 'kod' => $produktInfo['code'],
