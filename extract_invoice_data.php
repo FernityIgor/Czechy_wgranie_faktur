@@ -356,8 +356,10 @@ function convertToFlexibeeFormat($invoice) {
     $config = AppConfig::get();
     $defaultWarehouse = $config['mapping']['default_warehouse'] ?? null;
     
-    // Tablica do śledzenia nowych produktów
+    // Tablica do śledzenia nowych produktów (tylko te, które przeszły bez błędu)
     $newProducts = [];
+    // Tablica do śledzenia produktów, które nie mogły zostać zapewnione
+    $failedProducts = [];
 
     // Normalizuje jednostki z bazy do kodów Flexibee (np. szt -> ks)
     $normalizeUnit = function ($unit) {
@@ -428,9 +430,16 @@ function convertToFlexibeeFormat($invoice) {
         $produktIaiId = $pozycja['iai_id'] ?? null;
 
         $rokFaktury = intval(date('Y', strtotime($invoice['data_wystawienia'])));
-        $produktInfo = $flexibee->ensureProduct($produktKod, $produktNazwa, $produktMj, $defaultWarehouse, $rokFaktury, $produktEan, $produktRodzaj, $produktIaiId) ?: ['code' => $pozycja['kod'], 'skladovy' => false];
+        $produktInfo = $flexibee->ensureProduct($produktKod, $produktNazwa, $produktMj, $defaultWarehouse, $rokFaktury, $produktEan, $produktRodzaj, $produktIaiId);
+
+        if ($produktInfo === null) {
+            // Produkt nie mógł zostać zapewniony - loguj błąd i pomiń pozycję
+            echo "OSTRZEŻENIE: Nie można zapewnić produktu $produktKod ($produktNazwa) - pomijam pozycję faktury\n";
+            $failedProducts[] = ['kod' => $produktKod, 'nazwa' => $produktNazwa];
+            continue;
+        }
         
-        // Zapisz informacje o nowym produkcie
+        // Zapisz informacje o nowym produkcie (tylko te, które przeszły bez błędu)
         if (isset($produktInfo['new']) && $produktInfo['new']) {
             $newProducts[] = [
                 'kod' => $produktInfo['code'],
@@ -461,8 +470,9 @@ function convertToFlexibeeFormat($invoice) {
         $flexibeeInvoice['winstrom']['faktura-prijata']['polozkyDokladu'][] = $line;
     }
     
-    // Dodaj informacje o nowych produktach do wyniku
+    // Dodaj informacje o nowych produktach i błędach do wyniku
     $flexibeeInvoice['_new_products'] = $newProducts;
+    $flexibeeInvoice['_failed_products'] = $failedProducts;
     
     return $flexibeeInvoice;
 }
