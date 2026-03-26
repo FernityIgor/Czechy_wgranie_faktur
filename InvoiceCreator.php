@@ -98,8 +98,30 @@ class InvoiceCreator
             $produktyInfo = "Dodano produktów: " . count($flexibeeData['_new_products']) . "\n" . implode("\n", $produktyNotes);
         }
 
-        // Usuń pole _new_products przed wysłaniem do Flexibee
+        // Zaraportuj produkty, które nie mogły zostać zapewnione
+        $failedProducts = $flexibeeData['_failed_products'] ?? [];
+        if (!empty($failedProducts)) {
+            echo "⚠ Pominięto " . count($failedProducts) . " pozycji z błędem produktu:\n";
+            foreach ($failedProducts as $fp) {
+                echo "  - {$fp['kod']}: {$fp['nazwa']}\n";
+            }
+        }
+
+        // Usuń pola pomocnicze przed wysłaniem do Flexibee
         unset($flexibeeData['_new_products']);
+        unset($flexibeeData['_failed_products']);
+
+        // Jeśli wszystkie pozycje faktury zostały pominięte z powodu błędów, nie wysyłaj
+        $linie = $flexibeeData['winstrom']['faktura-prijata']['polozkyDokladu'] ?? [];
+        if (empty($linie)) {
+            $errMsg = 'Brak poprawnych pozycji faktury (wszystkie produkty zakończyły się błędem)';
+            echo "✗ $errMsg\n";
+            markInvoiceAsProcessed($invoiceNumber, 'ERROR', null, $errMsg);
+            return [
+                'success' => false,
+                'message' => $errMsg
+            ];
+        }
 
         // 3. Wyślij do Flexibee
         echo "Wysyłanie do Flexibee...\n";
@@ -110,11 +132,12 @@ class InvoiceCreator
                 echo "✓ DRY RUN - Faktura NIE została wysłana (ustaw DRY_RUN=false w .env)\n";
             } else {
                 echo "✓ Faktura utworzona w Flexibee pomyślnie\n";
-                // Zapisz status przetworzenia
+                // Zapisz status przetworzenia - tylko gdy przeszło bez błędu
                 markInvoiceAsProcessed($invoiceNumber, 'SUCCESS', $invoiceNumber, null, $produktyInfo);
             }
         } else {
             echo "✗ Błąd: {$result['message']}\n";
+            // Zapisz ERROR do tabeli - faktura będzie ponowiona (isInvoiceProcessed sprawdza tylko SUCCESS)
             markInvoiceAsProcessed($invoiceNumber, 'ERROR', null, $result['message']);
         }
 
