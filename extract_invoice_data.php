@@ -109,19 +109,19 @@ function getLastProcessedInvoiceDate($supplier = 'D2design s.r.o.') {
     
     $sql = "
     SELECT TOP(1) 
-        DATA_PRZETWORZENIA,
-        YEAR(DATA_PRZETWORZENIA) as ROK,
-        MONTH(DATA_PRZETWORZENIA) as MIESIAC,
-        DAY(DATA_PRZETWORZENIA) as DZIEN
+        DATA_WYSTAWIENIA,
+        YEAR(DATA_WYSTAWIENIA) as ROK,
+        MONTH(DATA_WYSTAWIENIA) as MIESIAC,
+        DAY(DATA_WYSTAWIENIA) as DZIEN
     FROM Igor_faktury_wgrane_furnizone
     WHERE PLATNIK_NAZWA = ?
     AND STATUS = 'SUCCESS'
-    ORDER BY DATA_PRZETWORZENIA DESC
+    ORDER BY DATA_WYSTAWIENIA DESC
     ";
     
     try {
         $result = $db->queryOne($sql, [$supplier]);
-        if ($result && $result['DATA_PRZETWORZENIA']) {
+        if ($result && $result['DATA_WYSTAWIENIA']) {
             // Pobierz komponenty daty z SQL Server (są w poprawnym formacie)
             $year = $result['ROK'];
             $month = $result['MIESIAC'];
