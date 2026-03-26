@@ -114,10 +114,12 @@ class InvoiceCreator
         // Jeśli wszystkie pozycje faktury zostały pominięte z powodu błędów, nie wysyłaj
         $linie = $flexibeeData['winstrom']['faktura-prijata']['polozkyDokladu'] ?? [];
         if (empty($linie)) {
-            echo "✗ Brak poprawnych pozycji do wysłania - faktura pominięta\n";
+            $errMsg = 'Brak poprawnych pozycji faktury (wszystkie produkty zakończyły się błędem)';
+            echo "✗ $errMsg\n";
+            markInvoiceAsProcessed($invoiceNumber, 'ERROR', null, $errMsg);
             return [
                 'success' => false,
-                'message' => 'Brak poprawnych pozycji faktury (wszystkie produkty zakończyły się błędem)'
+                'message' => $errMsg
             ];
         }
 
@@ -135,7 +137,8 @@ class InvoiceCreator
             }
         } else {
             echo "✗ Błąd: {$result['message']}\n";
-            // Nie zapisujemy do tabeli śledzenia gdy faktura nie przeszła - zostanie ponowiona przy następnym uruchomieniu
+            // Zapisz ERROR do tabeli - faktura będzie ponowiona (isInvoiceProcessed sprawdza tylko SUCCESS)
+            markInvoiceAsProcessed($invoiceNumber, 'ERROR', null, $result['message']);
         }
 
         return $result;
